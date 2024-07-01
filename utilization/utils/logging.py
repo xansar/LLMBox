@@ -62,8 +62,10 @@ def list_datasets() -> List[str]:
 
 
 def get_git_revision(base_path) -> str:
+    # import pdb
     try:
         git_dir = pathlib.Path(base_path) / '.git'
+        # pdb.set_trace()
         with (git_dir / 'HEAD').open('r') as head:
             ref = head.readline()
 
@@ -181,6 +183,6 @@ def set_logging(
 
     # finish logging initialization
     logger.info(f"Saving logs to {os.path.abspath(log_path)}")
-    git_revision = get_git_revision(os.path.join(os.path.dirname(__file__), '../..'))
+    git_revision = get_git_revision(os.path.join(os.path.dirname(__file__), '../../..'))
     evaluation_args.git_revision = git_revision
     getFileLogger().info(f"LLMBox revision: {git_revision}")
