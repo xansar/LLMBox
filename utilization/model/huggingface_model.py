@@ -37,6 +37,7 @@ def load_tokenizer(tokenizer_name_or_path: str, use_fast: bool, max_length: int 
         truncation_side="left",
         add_eos_token=False,
         add_bos_token=False,  # add in chat_template
+        trust_remote_code=True,
     )
 
     # TODO: [Important]!!! check for each tokenizer
@@ -44,6 +45,8 @@ def load_tokenizer(tokenizer_name_or_path: str, use_fast: bool, max_length: int 
         if "llama" in tokenizer_name_or_path.lower().replace("_", "").replace("-", ""):
             # https://github.com/meta-llama/llama/issues/380#issuecomment-1729077205
             tokenizer.pad_token = tokenizer.bos_token
+        elif "wingpt27b" in tokenizer_name_or_path.lower().replace("_", "").replace("-", ""):
+            tokenizer.pad_token = "<|endoftext|>"
         else:
             tokenizer.pad_token = tokenizer.unk_token
 
@@ -119,6 +122,8 @@ def load_hf_model(args: ModelArguments) -> Tuple[PreTrainedModel, Union[PreTrain
 
     if hasattr(args, 'bnb_config') and args.bnb_config:
         model_kwargs['quantization_config'] = args.bnb_config
+
+    model_kwargs['trust_remote_code'] = True
 
     try:
         model = AutoModelForCausalLM.from_pretrained(args.model_name_or_path, **model_kwargs).eval()
@@ -720,7 +725,10 @@ class HuggingFaceModel(Model):
             if len(self._token_labels) < option_num:
                 labels = [chr(i + 65) for i in range(len(self._token_labels), option_num)]
                 self._word_labels.extend([self.tokenizer.encode(" " + l, add_special_tokens=False)[-1] for l in labels])
-                self._token_labels.extend([self.tokenizer.convert_tokens_to_ids(l) for l in labels])
+                if 'wingpt27b' in self.name.lower().replace("-", ""):
+                    self._token_labels.extend([self.tokenizer.encode(l)[-1] for l in labels])
+                else:
+                    self._token_labels.extend([self.tokenizer.convert_tokens_to_ids(l) for l in labels])
             return self._word_labels[:option_num] + self._token_labels[:option_num]
         else:
             if self.candidate_ids is None:
