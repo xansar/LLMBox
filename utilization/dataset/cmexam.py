@@ -22,9 +22,10 @@ class CMExam(MultipleChoiceDataset):
         "Answer": "B"
     """
 
-    instruction = "以下是关于(中国医学考试)的单项选择题，直接给出正确答案的选项”。\n\n题目：{{question}}{{'\n' + options if options}}\n答案："
+    instruction = "以下是关于中国医学考试的单项选择题，你需要在[5]个选项中选出1个正确答案，直接给出正确答案的选项。\n\n题目：{{question}}{{'\n' + options if options}}\n答案："
     evaluation_set = "test"
     example_set = "val"
+    options_num = 5
     # load_args = ("/data/home/xiangxu_zhang/codes_repo/HealthLLM/benchmark/CMExam/data",)
 
     # def format_instance(self, instance):
@@ -39,6 +40,8 @@ class CMExam(MultipleChoiceDataset):
         res_options = [options[label] for label in options.keys()]
         # print(res_options)
         # print(instance["Question"])
+        if len(options) != self.options_num:
+            raise ValueError(f"选项数量不等于{self.options_num}，当前选项数量为{len(options)}")
         return dict(
             question=instance["Question"],
             target_idx=ord(instance["Answer"]) - ord('A'),
@@ -60,8 +63,8 @@ class CMExam(MultipleChoiceDataset):
         example_path = osp.join(dataset_path, example_set + '.csv')
         evaluation_path = osp.join(dataset_path, evaluation_set + '.csv')
         self.evaluation_data = load_raw_dataset_from_file(evaluation_path)
-        print(self.evaluation_data[0])
+        # print(self.evaluation_data[0])
         # 由于使用ppl模式，只保留单选题
-        self.evaluation_data = [q for q in self.evaluation_data if q['Answer'] and len(q['Answer']) == 1][:10]
+        self.evaluation_data = [q for q in self.evaluation_data if q['Answer'] and len(q['Answer']) == 1]
         self.example_data = load_raw_dataset_from_file(example_path)
         self.example_data = [q for q in self.example_data if q['Answer'] and len(q['Answer']) == 1]

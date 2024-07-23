@@ -5,7 +5,7 @@ from .metric import Metric
 
 __all__ = [
     "avg_metrics", "Accuracy", "Bleu", "F1", "Em", "GaokaoBenchMetric", "GPTEval", "IFEval", "PassAtK",
-    "PerspectiveApi", "Rouge", "WordAccuracy", "ECE"
+    "PerspectiveApi", "Rouge", "WordAccuracy", "ECE", "BERTScore"
 ]
 
 from .metric_utils import avg_metrics
@@ -23,6 +23,7 @@ if TYPE_CHECKING:
     from .rouge import Rouge as _Rouge
     from .word_accuracy import WordAccuracy as _WordAccuracy
     from .ece import ECE as _ECE
+    from .bert_score import BERTScore as _BERTScore
 
 
 def lazy_import(module, instance) -> Any:
@@ -56,3 +57,4 @@ PerspectiveApi: Type["_PerspectiveApi"] = lazy_import("perspective_api", "Perspe
 Rouge: Type["_Rouge"] = lazy_import("rouge", "Rouge")
 WordAccuracy: Type["_WordAccuracy"] = lazy_import("word_accuracy", "WordAccuracy")
 ECE: Type["_ECE"] = lazy_import("ece", "ECE")
+BERTScore: Type["_BERTScore"] = lazy_import("bert_score", "BERTScore")

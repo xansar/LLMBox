@@ -6,6 +6,7 @@ from .multiple_choice_dataset import MultipleChoiceDataset
 from .dataset_utils import load_raw_dataset_from_file, get_raw_dataset_loader
 import os.path as osp
 import re
+import string
 from ..metric import ECE
 
 logger = getLogger(__name__)
@@ -44,7 +45,7 @@ class UncertainMed(MultipleChoiceDataset):
         if match:
             question_content = match.group(1).strip()
             # 将字母序号换为数字序号
-            for c in 'ABCDE':
+            for c in string.ascii_uppercase[:self.options_num]:   # 根据选项数量改
                 question_content = question_content.replace('\n' + c, '\n' + str(ord(c) - ord('A') + 1))
         else:
             raise ValueError("未找到匹配的内容")
@@ -58,14 +59,14 @@ class UncertainMed(MultipleChoiceDataset):
         else:
             raise ValueError("未找到预测结果")
         
-        if raw_prediction == -1:
-            raw_prediction = random.randint(1, 5)
+        if raw_prediction == 0:
+            raw_prediction = random.randint(1, self.options_num)   # 根据选项数量改
 
-        pattern = fr"{raw_prediction}\. .+?"
+        pattern = fr"{raw_prediction}\. [^\n]+"
         match = re.search(pattern, question_content)
         
         if match:
-            prediction_content = match.group(0)
+            prediction_content = match.group(0).strip()
         else:
             raise ValueError("未找到匹配的预测")
         
@@ -94,7 +95,9 @@ class UncertainMed(MultipleChoiceDataset):
 
         evaluation_path = osp.join(dataset_path)
         self.evaluation_data = load_raw_dataset_from_file(evaluation_path)
-        print(self.evaluation_data[0])
+
+        self.options_num = int(re.search(r'\[(\d+)\]个', self.evaluation_data[0]['source']).group(1))
+        # print(self.evaluation_data[0])
         # 由于使用ppl模式，只保留单选题
         # self.evaluation_data = [q for q in self.evaluation_data if q['Answer'] and len(q['Answer']) == 1][:10]
         # self.example_data = load_raw_dataset_from_file(example_path)

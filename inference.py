@@ -14,9 +14,9 @@ def main():
     )
     evaluator.evaluate()
 
-    evaluation_args.uncertain_quantification = True
+    evaluation_args.uncertain_quantification = False
     if evaluation_args.uncertain_quantification:
-        dataset_args.dataset_names = ["uncertain_med"]
+        dataset_args.dataset_names = ["uncertain_med_cons"]
         dataset_args.dataset_path = dataset_args.evaluation_results_path
         if not osp.exists('uncertain_results'):
             os.makedirs('uncertain_results')

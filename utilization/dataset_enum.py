@@ -260,3 +260,13 @@ GAOKAO_ENGLISH_TASKS_SCORE = {
 }
 
 GAOKAO_TASKS_SCORE = dict(**GAOKAO_CHINESE_TASKS_SCORE, **GAOKAO_ENGLISH_TASKS_SCORE)
+
+UNCERTAIN_MED_BENCH_SUBJECTS = {
+    'rjua': 348,
+    'empec': 7998,
+    'dialmed': 932,
+    'cmb_exam': 1000,
+}
+UNCERTAIN_MED_BENCH_GEN_SUBJECTS = {
+    'rjua_advice': 348,
+}

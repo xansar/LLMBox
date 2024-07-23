@@ -95,7 +95,7 @@ class PredictionWriter:
 
     def _write(self, data):
         try:
-            with open(self.evaluation_path, "a") as f:
+            with open(self.evaluation_path, "a", encoding="utf-8") as f:
                 json.dump(data, f, ensure_ascii=False)
                 f.write("\n")
         except Exception as e:
@@ -183,6 +183,7 @@ def log_final_results(
 ) -> Optional[pd.Series]:
     """Aggregate the final results and prepare for dumping to a json file."""
 
+    questions = [instance.new_user_input for instance in evaluation_instances]
     evaluation_instances = dump_conversations(evaluation_instances, local_model)
 
     transposed_score_lists = [dict(zip(score_lists.keys(), values)) for values in zip(*score_lists.values())]
@@ -194,13 +195,14 @@ def log_final_results(
         lines = {
             "index": list(repeat_iter(range(len_evaluation_data), sample_num)),
             "source": evaluation_instances,
+            "question": questions,
             "raw_prediction": raw_predictions,
             "processed_prediction": processed_predictions,
             "reference": list(repeat_iter(references, sample_num)),
             "metric": list(repeat_iter(transposed_score_lists, sample_num)),
         }
         try:
-            return pd.DataFrame(lines).groupby("index").apply(to_dict(merge=["index", "source", "metric", "reference"]))
+            return pd.DataFrame(lines).groupby("index").apply(to_dict(merge=["index", "source", 'question', "metric", "reference"]))
         except Exception as e:
             _warn(e, lines)
 
@@ -225,6 +227,7 @@ def log_final_results(
         lines = {
             "index": index,
             "source": source_text,
+            "question": questions,
             "option": target_text,
             "option_num": option_nums,
             "perplexity": map(lambda r: r[0], raw_predictions),
@@ -234,10 +237,10 @@ def log_final_results(
         try:
             if multiple_source:
                 merge = ["index", "option", "reference", "metric"]
-                merge_by_option = ["source"]
+                merge_by_option = ["source", 'question']
             else:
                 merge = ["index", "source", "reference", "metric"]
-                merge_by_option = ["option"]
+                merge_by_option = ["option", 'question']
             return pd.DataFrame(lines).groupby("index").apply(to_dict(merge, merge_by_option))
         except Exception as e:
             _warn(e, lines)
@@ -247,6 +250,7 @@ def log_final_results(
         lines = {
             "index": list(range(len_evaluation_data)),
             "source": list(map(lambda i: "".join(i[:-1]), evaluation_instances)),
+            "question": questions,
             "probabilites": raw_predictions,
             "prediction": processed_predictions,
             "reference": references,
