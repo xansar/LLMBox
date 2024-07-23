@@ -487,16 +487,10 @@ class Dataset(torch.utils.data.Dataset, TokenizerUtilMixin, ICLUtilMixin):
 
         # 4. apply self-consistency
         if self.sample_num > 1:
-            import copy
-            evaluation_instances_repeated = []
-            option_nums_repeated = []
-            for _ in range(self.sample_num):
-                evaluation_instances_repeated.extend(copy.deepcopy(evaluation_instances))
-                option_nums_repeated.extend(copy.deepcopy(option_nums))
-            evaluation_instances = evaluation_instances_repeated
-            option_nums = option_nums_repeated
-            # evaluation_instances = evaluation_instances * self.sample_num
-            # option_nums = option_nums * self.sample_num
+            tmp_instances = deepcopy(evaluation_instances)
+            for _ in range(self.sample_num - 1):
+                evaluation_instances.extend(deepcopy(tmp_instances))
+            option_nums = option_nums * self.sample_num
 
         return evaluation_instances, option_nums
 

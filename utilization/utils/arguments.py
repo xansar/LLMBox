@@ -336,7 +336,8 @@ class ModelArguments(ModelBackendMixin):
         if self.model_name_or_path in API_MODELS:
             auto_model_type = API_MODELS[self.model_name_or_path]["model_type"]
         elif self.is_local_model():
-            auto_model_type = "chat" if re.search(r"chat|instruct", self.model_name_or_path.lower()) else "base"
+            # gemma uses it: instruction-tuned
+            auto_model_type = "chat" if re.search(r"chat|instruct|it", self.model_name_or_path.lower()) else "base"
         else:
             auto_model_type = None
 
@@ -367,7 +368,7 @@ class ModelArguments(ModelBackendMixin):
         # try to load as vllm model. If failed, fallback to huggingface model.
         # See `model/load.py` for details.
 
-        if self.is_vllm_model():
+        if self.is_vllm_model() and self.vllm_gpu_memory_utilization is None:
             self.vllm_gpu_memory_utilization = 0.9
 
         # argparse encodes string with unicode_escape, decode it to normal string, e.g., "\\n" -> "\n"

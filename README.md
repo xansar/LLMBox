@@ -2,7 +2,7 @@
 
 # LLMBox
 
-LLMBox is a comprehensive library for implementing LLMs, including **a unified training pipeline** and **comprehensive model evaluation**. LLMBox is designed to be a one-stop solution for training and utilizing LLMs. Through a pratical library design, we achieve a high-level of **flexibility** and **efficiency** in both training and utilization stages.
+LLMBox is a comprehensive library for implementing LLMs, including **a unified training pipeline** and **comprehensive model evaluation**. LLMBox is designed to be a one-stop solution for training and utilizing LLMs. Through a practical library design, we achieve a high-level of **flexibility** and **efficiency** in both training and utilization stages.
 
 <img style="display: block; margin: 25 auto;" src="docs/assets/llmbox.png" alt="" />
 
@@ -20,11 +20,11 @@ Training
 
 Utilization
 
+- **Blazingly Fast:** By managing the KV Cache of prefixes, we can speed up local inference by up to 6x 🚀.
 - **Comprehensive Evaluation:** 56+ commonly used [datasets](https://github.com/RUCAIBox/LLMBox/blob/main/docs/utilization/supported-datasets.md) and benchmarks in evaluating LLMs.
 - **Evaluation Methods:** Accurately reproduce results from original papers of OpenAI, LLaMA, Mistral, and other models.
 - **In-Context Learning:** We support various ICL strategies, including [`KATE`](https://aclanthology.org/2022.deelio-1.10/), [`GlobalE`](https://aclanthology.org/2022.acl-long.556/), and [`APE`](https://arxiv.org/abs/2211.01910).
 - **Chain-of-Thought:** For some datasets, we support three types of CoT evaluation: `base`, [`least-to-most`](https://arxiv.org/abs/2205.10625), and [`pal`](https://arxiv.org/abs/2211.10435).
-- **Prefix Caching:** By managing the KV Cache of prefixes, we can speed up local inference by up to 6x.
 - **vLLM and Flash Attention Support:** We also support [`vLLM`](https://github.com/vllm-project/vllm) and [`Flash Attention`](https://github.com/Dao-AILab/flash-attention) for efficient inference.
 - **Quantization:** BitsAndBytes and GPTQ quantization are supported.
 
@@ -37,7 +37,7 @@ See [documentations](https://github.com/RUCAIBox/LLMBox/tree/main/docs) for more
 
 ### Install
 
-```python
+```bash
 git clone https://github.com/RUCAIBox/LLMBox.git && cd LLMBox
 pip install -r requirements.txt
 ```
@@ -46,6 +46,27 @@ If you are only evaluating the OpenAI (or OpenAI compatible like DeepSeek, Perpl
 
 For installation problem, see [trouble shooting](https://github.com/RUCAIBox/LLMBox/tree/main/docs/trouble_shooting/vllm_no_module_name_packaging.md).
 
+<details>
+<summary><b>Update LLMBox</b></summary>
+
+Currently, you can simply pull the latest repository from GitHub to update LLMBox.
+
+```bash
+git pull
+```
+
+If you are facing a merge conflict, please try to drop, stash, or commit your local changes first.
+
+```bash
+git checkout local_changes && git add -p && git commit -m "local changes"
+git checkout main
+git pull
+```
+
+The above commands show how to commit your local changes to a new branch, and then update the LLMBox.
+
+</details>
+
 ### Quick Start with Training
 
 You can start with training a SFT model based on LLaMA-2 (7B) with deepspeed3:
@@ -53,14 +74,14 @@ You can start with training a SFT model based on LLaMA-2 (7B) with deepspeed3:
 ```bash
 cd training
 bash download.sh
-bash bash/run_7b_ds3.sh
+bash bash/run_ds3.sh
 ```
 
 ### Quick Start with Utilization
 
 To utilize your model, or evaluate an existing model, you can run the following command:
 
-```python
+```bash
 python inference.py -m gpt-3.5-turbo -d copa  # --num_shot 0 --model_type chat
 ```
 
@@ -129,6 +150,8 @@ CUDA_VISIBLE_DEVICES=0 python inference.py \
   --num_shot 5 \
   --ranking_type ppl_no_option
 ```
+
+See [benchmarking LLaMA3](https://github.com/RUCAIBox/LLMBox/blob/main/docs/utilization/benchmarking_llama3.md) for more examples.
 
 <table>
     <tr>
@@ -203,7 +226,7 @@ We by default enable prefix caching for efficient evaluation. vLLM is also suppo
 You can also use the following command to use vllm:
 
 
-```python
+```bash
 python inference.py -m ../Llama-2-7b-hf -d mmlu:abstract_algebra,anatomy --vllm True  # --prefix_caching False --flash_attention False
 ```
 

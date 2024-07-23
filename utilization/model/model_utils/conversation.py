@@ -6,7 +6,6 @@ from typing import Dict, Iterator, List, Literal, NewType, Optional, Tuple, Unio
 
 from jinja2.exceptions import TemplateError
 from jinja2.sandbox import ImmutableSandboxedEnvironment
-from transformers.pipelines.conversational import Conversation as _HFConversation
 
 from ...chat_templates import DEFAULT_CHAT_CONFIGS, DEFAULT_CHAT_TEMPLATE, add_space, smart_space
 
@@ -57,6 +56,8 @@ class ConversationFormatter:
         self.auto_leading_space = chat_config.pop("auto_leading_space", True)
         self.final_lstrip = chat_config.pop("final_lstrip", True)
         self.final_rstrip = chat_config.pop("final_rstrip", True)
+        self.merge_system_to_user = chat_config.pop("merge_system_to_user", False)
+        self.system_user_sep = chat_config.pop("system_user_sep", "\n")
 
         # api model does not need bos_token
         if "bos_token" not in chat_config:
@@ -257,12 +258,11 @@ class ConversationFormatter:
             raise ValueError(f"Invalid model_evaluation_method: {model_evaluation_method}")
 
 
-class Conversation(_HFConversation):
+class Conversation:
 
     def __init__(
         self,
         messages: Union[str, List[Dict[str, str]], None] = None,
-        conversation_id=None,
         num_turns: int = 1,
         num_shots: int = 0,
         num_options: int = 1,
@@ -271,9 +271,8 @@ class Conversation(_HFConversation):
         model_evaluation_method: Optional[Literal["get_ppl", "get_prob", "generation", "user_defined"]] = None,
         split: Optional[bool] = None,
         is_normalized: bool = False,
-        **deprecated_kwargs
     ):
-        super().__init__(messages, conversation_id, **deprecated_kwargs)
+        self.messages = messages if isinstance(messages, list) else []
         self.num_turns = num_turns
         self.num_shots = num_shots
         self.num_options = num_options
@@ -378,6 +377,14 @@ class Conversation(_HFConversation):
             assert self.messages[-1]["role"] == "assistant"
             return self.messages[-1]["content"]
 
+    def _merge_system_to_user(self):
+        """Whether to convert system message to part of next user message."""
+        if self.merge_system_to_user and self.messages[0]["role"] == "system":
+            msg = self.messages[0]["content"] + self.system_user_sep + self.messages[1]["content"]
+
+            self.messages.pop(0)
+            self.messages[0]["content"] = msg
+
     def set_formatter(
         self,
         formatter: ConversationFormatter,
@@ -387,6 +394,9 @@ class Conversation(_HFConversation):
         self.formatter = formatter
         self.model_evaluation_method = model_evaluation_method
         self.split = split and self.get_segs_num() > 1
+        self.merge_system_to_user = self.formatter.merge_system_to_user
+        self.system_user_sep = self.formatter.system_user_sep
+        self._merge_system_to_user()
 
     def to_model_prompt(
         self,
@@ -395,6 +405,7 @@ class Conversation(_HFConversation):
 
         if self.num_turns < max_turns:
             return None
+        assert self.formatter is not None, "Please set formatter before converting to model prompt."
 
         return self.formatter.to_model_prompts(
             [self],
@@ -455,7 +466,18 @@ class Conversation(_HFConversation):
         self.messages.extend(messages)
         return self
 
+    def __iter__(self):
+        for message in self.messages:
+            yield message
+
+    def __getitem__(self, item):
+        return self.messages[item]
+
+    def __setitem__(self, key, value):
+        self.messages[key] = value
+
+    def __len__(self):
+        return len(self.messages)
+
     def __repr__(self):
-        output = f"Conversation id: {self.uuid}\n"
-        output += pformat(self.messages)
-        return output
+        return "Conversation(\n" + pformat(self.messages) + ")"
