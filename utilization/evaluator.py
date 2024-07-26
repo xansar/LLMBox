@@ -136,17 +136,80 @@ class Evaluator:
                 f"The number of results {len(predictions)} should be equal to the number of samples in the dataset {self.dataset.len(option_num=False, normalization=False)}."
             )
 
-        step = self.dataset.len(option_num=False, sample_num=False, normalization=False)
+        step = self.dataset.len(option_num=False, sample_num=False, normalization=False)    # 问题数量
+        # TODO(xansar): 要写入参数文件
+        # self.evaluation_args.uncertain_quantification = True
+
+        #FIXME(xansar): 这里有问题,数据集是按照子集1,子集1,子集1,子集2,子集2,子集2排列的
         if self.dataset_args.pass_at_k:
             mode_predictions = [predictions[i::step] for i in range(step)]
         elif len(predictions) // step > 1:
-            mode_predictions = [mode(predictions[i::step]) for i in range(step)]
+            # TODO(xansar): 看看是否需要self-cons也跑一个
+            if self.evaluation_args.uncertain_quantification:
+                mode_predictions = [predictions[i::step][0] for i in range(step)]
+            else:
+                mode_predictions = [mode(predictions[i::step]) for i in range(step)]
         else:
             mode_predictions = predictions
 
         # calculate metric
         metric_results, last_score_lists = self.dataset.calculate_metric(mode_predictions)
-        self.dataset.log_final_results(raw_predictions, predictions, last_score_lists)
+
+        # calculate uncertainty
+        if self.evaluation_args.uncertain_quantification:
+            from .uncertainty_quantification import SelfConsistency
+            uncertainty_quan_func = SelfConsistency()
+            calib_metric_results, calib_last_score_lists = \
+                self.dataset.calculate_calibration_metric(
+                    predictions,
+                    last_score_lists,
+                    uncertainty_quan_func
+                    )
+
+            for k in calib_metric_results.keys():
+                metric_results[k].update(calib_metric_results[k])
+            for i in range(len(calib_last_score_lists)):
+                last_score_lists[i].update(calib_last_score_lists[i])
+
+
+
+            # results = OrderedDict()
+            # score_lists = []
+            # grouped_display_names = defaultdict(list)  # group by dataset
+            # splitted = self.dataset._split_by_subset(predictions, option_num=False, normalization=False, sample_num=self.dataset_args.sample_num)
+            # for n, d, p, a in zip(self.dataset.display_names, self.dataset._datasets, splitted, last_score_lists):
+            #     ## 计算uncertainty
+            #     ### 按照sample_num对p进行折叠，构建一个二层list
+            #     cur_step = d.len(option_num=False, sample_num=False, normalization=False)
+            #     p_per_ques = [p[i::cur_step] for i in range(cur_step)]
+            #     uncertainty_list = uncertainty_quan_func(p_per_ques)
+            #     accuracy_list = a['Accuracy']
+            #     subset_results, score_list = d.calculate_calibration_metric(uncertainty_list, accuracy_list)
+            #     results.update(subset_results)
+            #     score_lists.append(score_list)
+            #     grouped_display_names[d.dataset_name].append(n)
+            
+            #         # calculate the mean of each category
+            # for name, display_names in grouped_display_names.items():
+            #     if self.categorized_subsets.get(name, None):
+            #         for cat, cat_subsets in self.categorized_subsets[name].items():
+            #             c = set(f"{name}:{s}" for s in cat_subsets)
+            #             if len(c.intersection(set(display_names))) != len(c):
+            #                 # skip if not all subsets of a category are available
+            #                 continue
+            #             fstr = f"{name}[{cat.title().replace('_', ' ')} Macro Average]"
+            #             results[fstr] = avg_metrics([results[n] for n in c])
+
+            # for k in results.keys():
+            #     metric_results[k].update(results[k])
+            # for i in range(len(score_lists)):
+            #     last_score_lists[i].update(score_lists[i])
+            
+
+            
+            # results[name + "[Marco Average]"] = avg_metrics([r for k, r in results.items() if k.startswith(name + ":")])
+
+        self.dataset.log_final_results(raw_predictions, predictions, mode_predictions, last_score_lists)
         msg = f"Evaluation finished successfully:\nevaluation results: {self.dataset_args.evaluation_results_path}"
         for display_name, result in metric_results.items():
             if result is None:

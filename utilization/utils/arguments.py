@@ -571,6 +571,11 @@ class EvaluationArguments:
         default=False,
         help="Whether to skip metrics evaluation and only do inference",
     )
+    uncertain_quantification: bool = HfArg(
+        default=False,
+        help="whether to do uncertain quantification",
+    )
+    
 
     _redact = {"hf_token"}
 

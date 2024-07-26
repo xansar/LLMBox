@@ -50,10 +50,11 @@ class ConversationFormatter:
 
     def __init__(
         self,
-        chat_config: Dict[str, str],
+        _chat_config: Dict[str, str],
         chat_template: str,
         special_tokens_map: Optional[Dict[str, Union[str, List[str]]]] = None,
     ):
+        chat_config = copy.deepcopy(_chat_config)
         self.default_stop = chat_config.pop("default_stop", [])
         self.auto_leading_space = chat_config.pop("auto_leading_space", True)
         self.final_lstrip = chat_config.pop("final_lstrip", True)
@@ -79,7 +80,7 @@ class ConversationFormatter:
             chat_template = "base"
 
         if chat_template in DEFAULT_CHAT_CONFIGS:
-            chat_config = copy.deepcopy(DEFAULT_CHAT_CONFIGS[chat_template])
+            # chat_config = copy.deepcopy(DEFAULT_CHAT_CONFIGS[chat_template])
             chat_config = DEFAULT_CHAT_CONFIGS[chat_template]
             chat_template = DEFAULT_CHAT_TEMPLATE
         else:
@@ -94,7 +95,7 @@ class ConversationFormatter:
                 if key not in chat_config:
                     chat_config[key] = value
 
-        return cls(chat_config=chat_config, chat_template=chat_template, special_tokens_map=special_tokens_map)
+        return cls(_chat_config=chat_config, chat_template=chat_template, special_tokens_map=special_tokens_map)
 
     @staticmethod
     def _apply_prompt_template(

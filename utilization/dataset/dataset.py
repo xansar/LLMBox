@@ -773,6 +773,43 @@ class Dataset(torch.utils.data.Dataset, TokenizerUtilMixin, ICLUtilMixin):
         metric_results[self.display_name] = overall_results
         return metric_results, score_lists
 
+    def calculate_calibration_metric(self, uncertainty_list, accuracy_list):
+        """
+        计算校准指标
+
+        Args:
+            uncertainty_list: 不确定性列表
+            accuracy_list: 准确性列表
+        """
+        def _calculate_metric(uncertainty_list, accuracy_list):
+            pools = []
+            with ThreadPoolExecutor() as executor:
+                for metric_func in self.calib_metrics:
+                    pools.append(executor.submit(metric_func, uncertainty_list, accuracy_list))
+            results = {}
+            for pool in as_completed(pools):
+                results.update(pool.result())
+            return results
+
+        score_lists = {}
+        overall_results = _calculate_metric(uncertainty_list, accuracy_list)
+        for metric_func in self.calib_metrics:
+            score_lists.update(metric_func.last_score_lists)
+
+        subject_results = {}
+        # datasets like winogrander can be categorized by gender
+        if self.category_column is not None:
+            subjects = map(lambda i: f"{self.dataset_name}[{i[self.category_column]}]", self.evaluation_data)
+            subject_results = pd.DataFrame({
+                "confidence": uncertainty_list,
+                # "accuracy": accuracy_list,
+                "subject": subjects,
+            }).groupby("subject").apply(lambda df: _calculate_metric(df["predictions"], df["references"])).to_dict()
+
+        metric_results = OrderedDict(**subject_results)
+        metric_results[self.display_name] = overall_results
+        return metric_results, score_lists
+
     @property
     def last_score_lists(self) -> Dict[str, List[float]]:
         results = {}
@@ -807,11 +844,13 @@ class Dataset(torch.utils.data.Dataset, TokenizerUtilMixin, ICLUtilMixin):
         self,
         raw_predictions: List[str],
         processed_predictions: List[Union[str, float]],
+        mode_predictions: List[Union[str, float]],
         score_lists: Dict[str, List[float]],
     ) -> Optional[pd.Series]:
         return log_final_results(
             raw_predictions=raw_predictions,
             processed_predictions=processed_predictions,
+            mode_predictions=mode_predictions,
             evaluation_instances=self.evaluation_instances,
             score_lists=score_lists,
             multiple_source=(self.dataset_name == "winogrande"),
@@ -821,6 +860,8 @@ class Dataset(torch.utils.data.Dataset, TokenizerUtilMixin, ICLUtilMixin):
             len_evaluation_data=len(self.evaluation_data),
             sample_num=self.sample_num,
             references=self.references,
+            questions=self.questions,
+            options=self.options,
             local_model=self.model.is_local_model(),
         )
 
@@ -928,18 +969,20 @@ class DatasetCollection(torch.utils.data.Dataset):
         self,
         raw_predictions: List[str],
         processed_predictions: List[Union[str, float]],
+        mode_predictions: List[Union[str, float]],
         score_lists: List[Dict[str, List[float]]],
     ):
         lines = []
         raw = self._split_by_subset(raw_predictions)
         processed = self._split_by_subset(processed_predictions, option_num=False, normalization=False)
+        mode = self._split_by_subset(mode_predictions, option_num=False, normalization=False, sample_num=False)
 
-        for d, r, p, s in zip(self._datasets, raw, processed, score_lists):
+        for d, r, p, m, s in zip(self._datasets, raw, processed, mode, score_lists):
 
             def set_subset(l: dict):
                 l["subset"] = d.subset_name
 
-            series = d.log_final_results(r, p, s)  # type: ignore
+            series = d.log_final_results(r, p, m, s)  # type: ignore
             if series is None:
                 return
             series.apply(set_subset)
@@ -1007,6 +1050,37 @@ class DatasetCollection(torch.utils.data.Dataset):
 
             results[name + "[Marco Average]"] = avg_metrics([r for k, r in results.items() if k.startswith(name + ":")])
 
+        return results, score_lists
+
+    def calculate_calibration_metric(self, predictions, last_score_lists, uncertainty_quan_func) -> Tuple[Dict[str, Dict[str, float]], List[Dict[str, List[float]]]]:
+        results = OrderedDict()
+        score_lists = []
+        grouped_display_names = defaultdict(list)  # group by dataset
+        splitted = self._split_by_subset(predictions, option_num=False, normalization=False, sample_num=self.args.sample_num)
+        for n, d, p, a in zip(self.display_names, self._datasets, splitted, last_score_lists):
+            ## 计算uncertainty
+            ### 按照sample_num对p进行折叠，构建一个二层list
+            cur_step = d.len(option_num=False, sample_num=False, normalization=False)
+            p_per_ques = [p[i::cur_step] for i in range(cur_step)]
+            uncertainty_list = uncertainty_quan_func(p_per_ques)
+            accuracy_list = a['Accuracy']
+            subset_results, score_list = d.calculate_calibration_metric(uncertainty_list, accuracy_list)
+            results.update(subset_results)
+            score_lists.append(score_list)
+            grouped_display_names[d.dataset_name].append(n)
+        
+                # calculate the mean of each category
+        for name, display_names in grouped_display_names.items():
+            if self.categorized_subsets.get(name, None):
+                for cat, cat_subsets in self.categorized_subsets[name].items():
+                    c = set(f"{name}:{s}" for s in cat_subsets)
+                    if len(c.intersection(set(display_names))) != len(c):
+                        # skip if not all subsets of a category are available
+                        continue
+                    fstr = f"{name}[{cat.title().replace('_', ' ')} Macro Average]"
+                    results[fstr] = avg_metrics([results[n] for n in c])    
+
+            results[name + "[Marco Average]"] = avg_metrics([r for k, r in results.items() if k.startswith(name + ":")])
         return results, score_lists
 
     def get_batch_sampler(self, reload_tokenizer: bool = False):

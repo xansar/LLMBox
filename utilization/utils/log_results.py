@@ -170,6 +170,7 @@ def _warn(e, lines):
 def log_final_results(
     raw_predictions: List[str],
     processed_predictions: List[Union[str, float]],
+    mode_predictions: List[Union[str, float]],
     evaluation_instances: List[tuple],
     score_lists: Dict[str, List[float]],
     multiple_source: bool,
@@ -179,11 +180,12 @@ def log_final_results(
     len_evaluation_data: int,
     sample_num: int,
     references: List[Any],
+    questions: List[Any],
+    options: List[Any],
     local_model: bool,
 ) -> Optional[pd.Series]:
     """Aggregate the final results and prepare for dumping to a json file."""
 
-    questions = [instance.new_user_input for instance in evaluation_instances]
     evaluation_instances = dump_conversations(evaluation_instances, local_model)
 
     transposed_score_lists = [dict(zip(score_lists.keys(), values)) for values in zip(*score_lists.values())]
@@ -195,14 +197,16 @@ def log_final_results(
         lines = {
             "index": list(repeat_iter(range(len_evaluation_data), sample_num)),
             "source": evaluation_instances,
-            "question": questions,
+            "question": list(repeat_iter(questions, sample_num)),
+            "option": list(repeat_iter(options, sample_num)),
             "raw_prediction": raw_predictions,
             "processed_prediction": processed_predictions,
+            "mode_prediction": list(repeat_iter(mode_predictions, sample_num)),
             "reference": list(repeat_iter(references, sample_num)),
             "metric": list(repeat_iter(transposed_score_lists, sample_num)),
         }
         try:
-            return pd.DataFrame(lines).groupby("index").apply(to_dict(merge=["index", "source", 'question', "metric", "reference"]))
+            return pd.DataFrame(lines).groupby("index").apply(to_dict(merge=["index", "source", 'question', 'option', "mode_prediction", "metric", "reference"]))
         except Exception as e:
             _warn(e, lines)
 
