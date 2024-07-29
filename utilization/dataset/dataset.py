@@ -14,6 +14,9 @@ import pandas as pd
 import torch
 from tqdm import tqdm
 
+from statistics import mode
+
+
 from ..dataset_enum import GAOKAO_CHINESE_TASKS_SCORE, GAOKAO_ENGLISH_TASKS_SCORE, GAOKAO_TASKS_SCORE
 from ..metric.metric_utils import avg_metrics
 from ..model.model_utils import Conversation, ConversationFormatter, DatasetCollectionBatchSampler
@@ -1026,7 +1029,7 @@ class DatasetCollection(torch.utils.data.Dataset):
     def __getattr__(self, attr):
         return getattr(self._datasets[self._cur_idx], attr)
 
-    def calculate_metric(self, raw_predictions: List[Union[str, float]]) -> Dict[str, Dict[str, float]]:
+    def calculate_metric(self, raw_predictions: List[Union[str, float]], uncertain_quantification: bool=False) -> Dict[str, Dict[str, float]]:
         r"""Post-process predictions and calculate the metric scores."""
 
         metric_results = OrderedDict()
@@ -1045,10 +1048,11 @@ class DatasetCollection(torch.utils.data.Dataset):
                 # [inst1, inst2, inst1, inst2] -> [[inst1, inst1], [inst2, inst2]]
                 agg_preds = [preds[i::step] for i in range(step)]
             elif len(preds) // step > 1:
-                from statistics import mode
-
-                # [inst1, inst2, inst1, inst2] -> [mode([inst1, inst1]), mode([inst2, inst2])]
-                agg_preds = [mode(preds[i::step]) for i in range(step)]
+                if uncertain_quantification:
+                    agg_preds = [preds[i::step][0] for i in range(step)]
+                else:
+                    # [inst1, inst2, inst1, inst2] -> [mode([inst1, inst1]), mode([inst2, inst2])]
+                    agg_preds = [mode(preds[i::step]) for i in range(step)]
             else:
                 # [inst1, inst2]
                 agg_preds = preds
@@ -1061,6 +1065,21 @@ class DatasetCollection(torch.utils.data.Dataset):
             metric_results.update(subset_results)
             score_lists.append(score_list)
             grouped_display_names[d.dataset_name].append(n)
+
+            # 计算校准指标
+            if uncertain_quantification:
+                from ..uncertainty_quantification import SelfConsistency
+                uncertainty_quan_func = SelfConsistency()
+                p_per_ques = [preds[i::step] for i in range(step)]
+                accuracy_list = score_list['Accuracy']
+                uncertainty_list = uncertainty_quan_func(p_per_ques)
+                calib_subset_results, calib_score_list = \
+                    d.calculate_calibration_metric(uncertainty_list, accuracy_list)
+                for k in calib_subset_results.keys():
+                    metric_results[k].update(calib_subset_results[k])
+                
+                score_lists[-1].update(calib_score_list)
+
 
         # calculate the mean of each category
         for name, display_names in grouped_display_names.items():
@@ -1085,39 +1104,40 @@ class DatasetCollection(torch.utils.data.Dataset):
                 r for k, r in metric_results.items() if k.startswith(name + ":")
             ])
 
-        self.log_final_results(raw_predictions, predictions, score_lists)
+        self.log_final_results(raw_predictions, predictions, agg_predictions, score_lists)
         return metric_results
 
-    def calculate_calibration_metric(self, predictions, last_score_lists, uncertainty_quan_func) -> Tuple[Dict[str, Dict[str, float]], List[Dict[str, List[float]]]]:
-        results = OrderedDict()
-        score_lists = []
-        grouped_display_names = defaultdict(list)  # group by dataset
-        splitted = self._split_by_subset(predictions, option_num=False, normalization=False, sample_num=self.args.sample_num)
-        for n, d, p, a in zip(self.display_names, self._datasets, splitted, last_score_lists):
-            ## 计算uncertainty
-            ### 按照sample_num对p进行折叠，构建一个二层list
-            cur_step = d.len(option_num=False, sample_num=False, normalization=False)
-            p_per_ques = [p[i::cur_step] for i in range(cur_step)]
-            uncertainty_list = uncertainty_quan_func(p_per_ques)
-            accuracy_list = a['Accuracy']
-            subset_results, score_list = d.calculate_calibration_metric(uncertainty_list, accuracy_list)
-            results.update(subset_results)
-            score_lists.append(score_list)
-            grouped_display_names[d.dataset_name].append(n)
+    # def calculate_calibration_metric(self, predictions, last_score_lists, uncertainty_quan_func) -> Tuple[Dict[str, Dict[str, float]], List[Dict[str, List[float]]]]:
+    #     results = OrderedDict()
+    #     score_lists = []
+    #     grouped_display_names = defaultdict(list)  # group by dataset
+    #     splitted = self._split_by_subset(predictions, option_num=False, normalization=False, sample_num=self.args.sample_num)
         
-                # calculate the mean of each category
-        for name, display_names in grouped_display_names.items():
-            if self.categorized_subsets.get(name, None):
-                for cat, cat_subsets in self.categorized_subsets[name].items():
-                    c = set(f"{name}:{s}" for s in cat_subsets)
-                    if len(c.intersection(set(display_names))) != len(c):
-                        # skip if not all subsets of a category are available
-                        continue
-                    fstr = f"{name}[{cat.title().replace('_', ' ')} Macro Average]"
-                    results[fstr] = avg_metrics([results[n] for n in c])    
+    #     for n, d, p, a in zip(self.display_names, self._datasets, splitted, last_score_lists):
+    #         ## 计算uncertainty
+    #         ### 按照sample_num对p进行折叠，构建一个二层list
+    #         cur_step = d.len(option_num=False, sample_num=False, normalization=False)
+    #         p_per_ques = [p[i::cur_step] for i in range(cur_step)]
+    #         uncertainty_list = uncertainty_quan_func(p_per_ques)
+    #         accuracy_list = a['Accuracy']
+    #         subset_results, score_list = d.calculate_calibration_metric(uncertainty_list, accuracy_list)
+    #         results.update(subset_results)
+    #         score_lists.append(score_list)
+    #         grouped_display_names[d.dataset_name].append(n)
+        
+    #             # calculate the mean of each category
+    #     for name, display_names in grouped_display_names.items():
+    #         if self.categorized_subsets.get(name, None):
+    #             for cat, cat_subsets in self.categorized_subsets[name].items():
+    #                 c = set(f"{name}:{s}" for s in cat_subsets)
+    #                 if len(c.intersection(set(display_names))) != len(c):
+    #                     # skip if not all subsets of a category are available
+    #                     continue
+    #                 fstr = f"{name}[{cat.title().replace('_', ' ')} Macro Average]"
+    #                 results[fstr] = avg_metrics([results[n] for n in c])    
 
-            results[name + "[Marco Average]"] = avg_metrics([r for k, r in results.items() if k.startswith(name + ":")])
-        return results, score_lists
+    #         results[name + "[Marco Average]"] = avg_metrics([r for k, r in results.items() if k.startswith(name + ":")])
+    #     return results, score_lists
 
     def get_batch_sampler(self, reload_tokenizer: bool = False):
         if reload_tokenizer:

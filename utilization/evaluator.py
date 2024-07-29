@@ -210,7 +210,7 @@ class Evaluator:
 
         # self.dataset.log_final_results(raw_predictions, predictions, mode_predictions, last_score_lists)
         # calculate metric
-        metric_results = self.dataset.calculate_metric(raw_predictions)
+        metric_results = self.dataset.calculate_metric(raw_predictions, self.evaluation_args.uncertain_quantification)
 
         msg = f"Evaluation finished successfully:\nevaluation results: {self.dataset_args.evaluation_results_path}"
         for display_name, result in metric_results.items():

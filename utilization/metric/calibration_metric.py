@@ -45,7 +45,7 @@ class ECE(Metric):
         
         self.last_score_lists = {
             'Confidence': predictions, 
-            'Accuracy': references
+            # 'Accuracy': references
             }
         
         return {
@@ -82,7 +82,7 @@ class AUROC(Metric):
         
         self.last_score_lists = {
             'Confidence': y_confs, 
-            'Accuracy': y_true
+            # 'Accuracy': y_true
             }
         
         return {
@@ -98,7 +98,7 @@ class AUPRC(Metric):
         
         self.last_score_lists = {
             'Confidence': y_confs, 
-            'Accuracy': y_true
+            # 'Accuracy': y_true
             }
         
         return {
