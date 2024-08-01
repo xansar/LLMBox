@@ -4,3 +4,5 @@ from .dynamic_stride_tqdm import dynamic_stride_tqdm
 from .generation_args import GenerationArg, resolve_generation_args
 from .log_results import PredictionWriter, log_final_results
 from .logging import getFileLogger
+
+from .release_gpu import release_gpu_memory, release_vllm

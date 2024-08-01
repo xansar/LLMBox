@@ -446,8 +446,8 @@ class Dataset(torch.utils.data.Dataset, TokenizerUtilMixin, ICLUtilMixin):
             if len(self.example_data) == self.max_num_shots:
                 self.random_indice = list(range(len(self.example_data)))
             else:
-                self.random_indice = list(np.random.choice(len(self.example_data), self.max_num_shots, replace=False))
-
+                self.random_indice = np.random.choice(len(self.example_data), self.max_num_shots, replace=False)
+                self.random_indice = self.random_indice.tolist()
         # 2. format the evaluation data
         self.formatted_evaluation_data = map(
             self._format_instance,
@@ -687,7 +687,6 @@ class Dataset(torch.utils.data.Dataset, TokenizerUtilMixin, ICLUtilMixin):
             )
 
         # shuffle the examples using the `indice`
-        indices = indices.tolist()
         if hasattr(self, "formatted_example_data"):
             examples = [self.formatted_example_data[i] for i in indices]
         else:

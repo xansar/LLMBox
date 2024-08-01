@@ -60,7 +60,6 @@ class vllmModel(Model):
             quantization="gptq" if args.gptq else None,
             trust_remote_code=True,
             seed=args.seed,
-            max_model_len=self.args.max_length,
             max_logprobs=40,  # https://github.com/vllm-project/vllm/issues/5299
             max_model_len=self.args.max_length,
             **kwargs
