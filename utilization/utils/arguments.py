@@ -11,11 +11,10 @@ from typing import Callable, ClassVar, Dict, List, Literal, Optional, Set, Tuple
 
 import tiktoken
 
-from ..chat_templates import DEFAULT_CHAT_CONFIGS
 from ..dataset_enum import DEFAULT_VLLM_DATASETS
 from ..model_enum import (
     ANTHROPIC_CHAT_COMPLETIONS_ARGS, API_MODELS, DASHSCOPE_CHAT_COMPLETIONS_ARGS, HUGGINGFACE_ARGS,
-    QIANFAN_CHAT_COMPLETIONS_ARGS, VLLM_ARGS
+    OPENAI_CHAT_COMPLETIONS_ARGS, QIANFAN_CHAT_COMPLETIONS_ARGS, VLLM_ARGS
 )
 from .hf_argparser import HfArg, HfArgumentParser
 from .logging import filter_none_repr, get_redacted, list_datasets, log_levels, passed_in_commandline, set_logging
@@ -246,7 +245,7 @@ class ModelArguments(ModelBackendMixin):
     _model_specific_arguments: ClassVar[Dict[str, Set[str]]] = {
         "anthropic": {"anthropic_api_key"} | set(ANTHROPIC_CHAT_COMPLETIONS_ARGS),
         "dashscope": {"dashscope_api_key"} | set(DASHSCOPE_CHAT_COMPLETIONS_ARGS),
-        "openai": set(),  # openai model is used for gpt-eval metrics, not specific arguments
+        "openai": set(OPENAI_CHAT_COMPLETIONS_ARGS),
         "qianfan": {"qianfan_access_key", "qianfan_secret_key"} | set(QIANFAN_CHAT_COMPLETIONS_ARGS),
         "vllm": {"vllm", "prefix_caching", "flash_attention", "gptq", "vllm_gpu_memory_utilization", "chat_template"}
         | set(VLLM_ARGS),
@@ -410,7 +409,7 @@ class DatasetArguments:
         metadata={"metavar": "DATASET"},
     )
     batch_size: batch_size_type = HfArg(
-        default="16:auto",
+        default="16",
         aliases=["-bsz", "-b"],
         help=
         "The evaluation batch size. Specify an integer (e.g., '10') to use a fixed batch size for all iterations. Alternatively, append ':auto' (e.g., '10:auto') to start with the specified batch size and automatically adjust it in subsequent iterations to maintain constant CUDA memory usage",
@@ -641,6 +640,7 @@ def check_args(model_args: ModelArguments, dataset_args: DatasetArguments, evalu
     if model_args.model_name_or_path in API_MODELS and API_MODELS[
         model_args.model_name_or_path]["model_type"] == "chat" and dataset_args.batch_size > 1:
         dataset_args.batch_size = 1
+        dataset_args.auto_batch_size = False
         logger.warning(
             f"chat/completions endpoint model {model_args.model_name_or_path} doesn't support batch_size > 1, automatically set batch_size to 1."
         )
@@ -680,8 +680,10 @@ def check_args(model_args: ModelArguments, dataset_args: DatasetArguments, evalu
         if hasattr(model_args, arg):
             # Ellipsis is just a placeholder that never equals to any default value of the argument
             if model_args.__dataclass_fields__[arg].hash:
-                logger.warning(f"Argument `{arg}` is not supported for model `{model_args.model_name_or_path}`")
-            setattr(model_args, arg, None)
+                logger.warning(f"Argument `{arg}` is not supported for model `{model_args.model_name_or_path}` ({model_args.model_backend})")
+            # to ensure we can pass arguments to GPTEval with any model
+            if arg not in model_args._model_specific_arguments["openai"]:
+                setattr(model_args, arg, None)
 
 
 DESCRIPTION_STRING = r"""LLMBox is a comprehensive library for implementing LLMs, including a unified training pipeline and comprehensive model evaluation. LLMBox is designed to be a one-stop solution for training and utilizing LLMs. Through a pratical library design, we achieve a high-level of flexibility and efficiency in both training and utilization stages.

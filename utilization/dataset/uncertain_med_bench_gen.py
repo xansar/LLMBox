@@ -34,6 +34,7 @@ class UncertainMedBenchGen(GenerationDataset):
         return dict(
             question=instance['question'],
             answer=instance['answer'],
+            target=instance['answer'],
         )
     
     def _set_instruction(self, subset_name):
@@ -84,7 +85,7 @@ class UncertainMedBenchGen(GenerationDataset):
         local_rng = random.Random(subset_name)
         # TODO(xansar):增加threshold 参数
         self.evaluation_data = self.data_sample_with_threshold(subset_name, evaluation_data, local_rng)
-    
+        self.example_data = evaluation_data
             
     @cached_property
     def questions(self):

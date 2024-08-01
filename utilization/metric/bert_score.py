@@ -44,6 +44,7 @@ class BERTScore(Metric):
             batch_size=self.batch_size,
             device=self.device,
             use_fast_tokenizer=self.use_fast_tokenizer,
+            baseline_path='/data/home/xiangxu_zhang/.model/google-bert/bert-base-chinese/bert_score_rescale_baseline.csv'
             )
 
         self.last_score_lists = {"BERTScore": F1.tolist()}

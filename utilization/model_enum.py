@@ -398,6 +398,11 @@ API_MODELS = {
         "model_type": "chat",
         "model_backend": "qianfan",
     },
+    "ERNIE-4.0-8K-0613": {
+        "endpoint": "chat/completions",
+        "model_type": "chat",
+        "model_backend": "qianfan",
+    },
     "ERNIE-Speed": {
         "endpoint": "chat/completions",
         "model_type": "chat",

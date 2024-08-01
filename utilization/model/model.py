@@ -231,7 +231,7 @@ class ApiModel(Model):
     model_max_input_and_output: int
     support_cache: bool = False
 
-    max_retry_times: int = 3
+    max_retry_times: int = 10
 
     endpoint: Literal["completions", "chat/completions"]
 
