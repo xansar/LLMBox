@@ -1,0 +1,49 @@
+python inference.py
+    -m /data/home/xiangxu_zhang/.model/Qwen/Qwen2-0.5B-Instruct
+    -d cmexam
+    --dataset_path /data/home/xiangxu_zhang/codes_repo/HealthLLM/benchmark/CMExam/data
+    --log_level debug
+    --evaluation_set "test"
+    --seed 42
+    --vllm True
+    --model_type chat
+    --chat_template chatml
+    --model_backend huggingface
+    --ranking_type generation
+    --max_tokens 20
+
+python inference.py
+    -m /data/home/xiangxu_zhang/.model/m-a-p/neo_scalinglaw_250M/hf_ckpt/1002.65B/
+    --tokenizer /data/home/xiangxu_zhang/.model/m-a-p/neo_7b
+    -d cmexam
+    --dataset_path /data/home/xiangxu_zhang/codes_repo/HealthLLM/benchmark/CMExam/data
+    --log_level debug
+    --evaluation_set "test"
+    --seed 42
+    --vllm True
+    --model_type base
+    --model_backend huggingface
+    --ranking_type ppl
+
+python inference.py
+    -m /data/home/xiangxu_zhang/codes_repo/HealthLLM/LLMBox/training/output/lr_test_3/checkpoint-final-merged
+    -d cmexam
+    --dataset_path /data/home/xiangxu_zhang/codes_repo/HealthLLM/benchmark/CMExam/data
+    --log_level debug
+    --evaluation_set "test"
+    --seed 42
+    --vllm True
+    --model_type base
+    --model_backend huggingface
+    --ranking_type ppl
+
+python inference.py 
+    -m /data/home/xiangxu_zhang/.model/Qwen/Qwen1.5-1.8B 
+    -d ceval:basic_medicine,clinical_medicine,physician 
+    --dataset_path /data/home/xiangxu_zhang/codes_repo/HealthLLM/LLMBox/datasets/ceval/ceval-exam
+    --log_level debug 
+    --evaluation_set "val" 
+    --seed 42 
+    --vllm True 
+    --model_type base 
+    --model_backend huggingface
