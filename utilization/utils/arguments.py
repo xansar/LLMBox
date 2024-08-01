@@ -133,6 +133,7 @@ class ModelArguments(ModelBackendMixin):
     )
     max_length: Optional[int] = HfArg(
         default=None,
+        aliases=["--max_model_len"],
         help="The maximum number of tokens of model input sequence",
     )
     temperature: float = HfArg(
@@ -336,7 +337,8 @@ class ModelArguments(ModelBackendMixin):
         if self.model_name_or_path in API_MODELS:
             auto_model_type = API_MODELS[self.model_name_or_path]["model_type"]
         elif self.is_local_model():
-            auto_model_type = "chat" if re.search(r"chat|instruct", self.model_name_or_path.lower()) else "base"
+            # gemma uses it: instruction-tuned
+            auto_model_type = "chat" if re.search(r"chat|instruct|it", self.model_name_or_path.lower()) else "base"
         else:
             auto_model_type = None
 
@@ -367,7 +369,7 @@ class ModelArguments(ModelBackendMixin):
         # try to load as vllm model. If failed, fallback to huggingface model.
         # See `model/load.py` for details.
 
-        if self.is_vllm_model():
+        if self.is_vllm_model() and self.vllm_gpu_memory_utilization is None:
             self.vllm_gpu_memory_utilization = 0.9
 
         # argparse encodes string with unicode_escape, decode it to normal string, e.g., "\\n" -> "\n"
@@ -487,6 +489,7 @@ class DatasetArguments:
     )
 
     continue_from: ClassVar[int] = 0
+    """The number of instances (lines) in .json file to resume from. This is set in `PredictionWriter.write_metainfo`."""
 
     # set in `set_logging` with format "{evaluation_results_dir}/{log_filename}.json"
     evaluation_results_path: ClassVar[Optional[str]] = None
@@ -570,6 +573,11 @@ class EvaluationArguments:
         default=False,
         help="Whether to skip metrics evaluation and only do inference",
     )
+    uncertain_quantification: bool = HfArg(
+        default=False,
+        help="whether to do uncertain quantification",
+    )
+    
 
     _redact = {"hf_token"}
 

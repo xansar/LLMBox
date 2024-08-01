@@ -3,6 +3,7 @@ import logging
 import os
 import pathlib
 import sys
+from collections import defaultdict
 from dataclasses import fields
 from functools import lru_cache
 from typing import TYPE_CHECKING, List, Optional
@@ -37,17 +38,17 @@ BUILTIN_DATASET = {
     "translation_dataset", "warn_once"
 }
 
-LOGGED = set()
+LOGGED = defaultdict(int)
 
 
-def log_once(call_log: callable, msg: str, identifier: str, stacklevel=2):
-    if identifier not in LOGGED:
+def log_once(call_log: callable, msg: str, identifier: str, log_times=1, stacklevel=2):
+    if LOGGED.get(identifier, 0) < log_times:
         call_log(msg, stacklevel=stacklevel)
-        LOGGED.add(identifier)
+        LOGGED[identifier] += 1
 
 
-def warn_once(logger: logging.Logger, msg: str, identifier: str):
-    log_once(logger.warning, msg, identifier, stacklevel=3)
+def warn_once(logger: logging.Logger, msg: str, identifier: str, log_times=1):
+    log_once(logger.warning, msg, identifier, log_times=log_times, stacklevel=3)
 
 
 @lru_cache
@@ -62,8 +63,10 @@ def list_datasets() -> List[str]:
 
 
 def get_git_revision(base_path) -> str:
+    # import pdb
     try:
         git_dir = pathlib.Path(base_path) / '.git'
+        # pdb.set_trace()
         with (git_dir / 'HEAD').open('r') as head:
             ref = head.readline()
 
@@ -181,6 +184,6 @@ def set_logging(
 
     # finish logging initialization
     logger.info(f"Saving logs to {os.path.abspath(log_path)}")
-    git_revision = get_git_revision(os.path.join(os.path.dirname(__file__), '../..'))
+    git_revision = get_git_revision(os.path.join(os.path.dirname(__file__), '../../..'))
     evaluation_args.git_revision = git_revision
     getFileLogger().info(f"LLMBox revision: {git_revision}")

@@ -14,6 +14,9 @@ import pandas as pd
 import torch
 from tqdm import tqdm
 
+from statistics import mode
+
+
 from ..dataset_enum import GAOKAO_CHINESE_TASKS_SCORE, GAOKAO_ENGLISH_TASKS_SCORE, GAOKAO_TASKS_SCORE
 from ..metric.metric_utils import avg_metrics
 from ..model.model_utils import Conversation, ConversationFormatter, DatasetCollectionBatchSampler
@@ -22,6 +25,10 @@ from ..utils.dynamic_stride_tqdm import dynamic_stride_tqdm
 from ..utils.log_results import PredictionWriter, log_final_results, repeat_iter
 from ..utils.logging import warn_once
 from .dataset_utils import ICLUtilMixin, TokenizerUtilMixin, get_raw_dataset_loader
+
+from ..uncertainty_quantification import SelfConsistency, ClaimEntailScore, ClaimExtractor
+
+
 
 if typing.TYPE_CHECKING:
     # solve the circular import
@@ -220,10 +227,10 @@ class Dataset(torch.utils.data.Dataset, TokenizerUtilMixin, ICLUtilMixin):
         return len(self.evaluation_instances)
 
     def __getitem__(self, idx):
-        return self.evaluation_instances[idx]
+        return deepcopy(self.evaluation_instances[idx])
 
     def __iter__(self):
-        yield from self.evaluation_instances
+        yield from deepcopy(self.evaluation_instances)
 
     def format_instance(self, instance: dict) -> dict:
         r"""Format the dataset instance into task format. See [docs](https://github.com/RUCAIBox/LLMBox/blob/main/docs/utilization/how-to-customize-dataset.md#formating-the-instances) for more details.
@@ -437,7 +444,7 @@ class Dataset(torch.utils.data.Dataset, TokenizerUtilMixin, ICLUtilMixin):
             if len(self.example_data) == self.max_num_shots:
                 self.random_indice = list(range(len(self.example_data)))
             else:
-                self.random_indice = np.random.choice(len(self.example_data), self.max_num_shots, replace=False)
+                self.random_indice = list(np.random.choice(len(self.example_data), self.max_num_shots, replace=False))
 
         # 2. format the evaluation data
         self.formatted_evaluation_data = map(self._format_instance, tqdm(self.evaluation_data, desc="Formatting"))
@@ -487,7 +494,9 @@ class Dataset(torch.utils.data.Dataset, TokenizerUtilMixin, ICLUtilMixin):
 
         # 4. apply self-consistency
         if self.sample_num > 1:
-            evaluation_instances = evaluation_instances * self.sample_num
+            tmp_instances = deepcopy(evaluation_instances)
+            for _ in range(self.sample_num - 1):
+                evaluation_instances.extend(deepcopy(tmp_instances))
             option_nums = option_nums * self.sample_num
 
         return evaluation_instances, option_nums
@@ -673,6 +682,7 @@ class Dataset(torch.utils.data.Dataset, TokenizerUtilMixin, ICLUtilMixin):
             )
 
         # shuffle the examples using the `indice`
+        indices = indices.tolist()
         if hasattr(self, "formatted_example_data"):
             examples = [self.formatted_example_data[i] for i in indices]
         else:
@@ -771,6 +781,43 @@ class Dataset(torch.utils.data.Dataset, TokenizerUtilMixin, ICLUtilMixin):
         metric_results[self.display_name] = overall_results
         return metric_results, score_lists
 
+    def calculate_calibration_metric(self, uncertainty_list, accuracy_list):
+        """
+        计算校准指标
+
+        Args:
+            uncertainty_list: 不确定性列表
+            accuracy_list: 准确性列表
+        """
+        def _calculate_metric(uncertainty_list, accuracy_list):
+            pools = []
+            with ThreadPoolExecutor() as executor:
+                for metric_func in self.calib_metrics:
+                    pools.append(executor.submit(metric_func, uncertainty_list, accuracy_list))
+            results = {}
+            for pool in as_completed(pools):
+                results.update(pool.result())
+            return results
+
+        score_lists = {}
+        overall_results = _calculate_metric(uncertainty_list, accuracy_list)
+        for metric_func in self.calib_metrics:
+            score_lists.update(metric_func.last_score_lists)
+
+        subject_results = {}
+        # datasets like winogrander can be categorized by gender
+        if self.category_column is not None:
+            subjects = map(lambda i: f"{self.dataset_name}[{i[self.category_column]}]", self.evaluation_data)
+            subject_results = pd.DataFrame({
+                "confidence": uncertainty_list,
+                # "accuracy": accuracy_list,
+                "subject": subjects,
+            }).groupby("subject").apply(lambda df: _calculate_metric(df["predictions"], df["references"])).to_dict()
+
+        metric_results = OrderedDict(**subject_results)
+        metric_results[self.display_name] = overall_results
+        return metric_results, score_lists
+
     @property
     def last_score_lists(self) -> Dict[str, List[float]]:
         results = {}
@@ -805,11 +852,15 @@ class Dataset(torch.utils.data.Dataset, TokenizerUtilMixin, ICLUtilMixin):
         self,
         raw_predictions: List[str],
         processed_predictions: List[Union[str, float]],
+        mode_predictions: List[Union[str, float]],
         score_lists: Dict[str, List[float]],
+        # claims: List[List[str]] = None,
     ) -> Optional[pd.Series]:
         return log_final_results(
             raw_predictions=raw_predictions,
             processed_predictions=processed_predictions,
+            mode_predictions=mode_predictions,
+            # claims=claims,
             evaluation_instances=self.evaluation_instances,
             score_lists=score_lists,
             multiple_source=(self.dataset_name == "winogrande"),
@@ -819,6 +870,8 @@ class Dataset(torch.utils.data.Dataset, TokenizerUtilMixin, ICLUtilMixin):
             len_evaluation_data=len(self.evaluation_data),
             sample_num=self.sample_num,
             references=self.references,
+            questions=self.questions,
+            options=self.options,
             local_model=self.model.is_local_model(),
         )
 
@@ -830,6 +883,17 @@ class Dataset(torch.utils.data.Dataset, TokenizerUtilMixin, ICLUtilMixin):
 
 
 class DatasetCollection(torch.utils.data.Dataset):
+    r"""The dataset collection class that combines multiple datasets into one.
+
+    Args:
+        - datasets: A dictionary of dataset instances. The keys are the dataset names and the values are the dataset instances.
+
+    Examples:
+        Assume a DatasetCollection composed of two datasets: `sub1` and `sub2`. Each dataset has different number of evaluation instances.
+        - Two subets: `[sub1, sub2]`
+        - Two subsets with self-consistency = 3: `[sub1, sub1, sub1, sub2, sub2, sub2]`
+        - Two subsets with normalization: `[sub1, sub1-norm, sub2, sub2-norm]`
+    """
 
     def __init__(self, datasets: Dict[str, Dataset]):
         super().__init__()
@@ -926,18 +990,28 @@ class DatasetCollection(torch.utils.data.Dataset):
         self,
         raw_predictions: List[str],
         processed_predictions: List[Union[str, float]],
+        mode_predictions: List[Union[str, float]],
         score_lists: List[Dict[str, List[float]]],
+        # claims_seq: Optional[List[List[str]]]=None,
     ):
         lines = []
         raw = self._split_by_subset(raw_predictions)
         processed = self._split_by_subset(processed_predictions, option_num=False, normalization=False)
-
-        for d, r, p, s in zip(self._datasets, raw, processed, score_lists):
+        mode = self._split_by_subset(mode_predictions, option_num=False, normalization=False, sample_num=False)
+        # if claims_seq:
+        #     claims = self._split_by_subset(claims_seq, option_num=False, normalization=False, sample_num=False)
+        # else:
+        #     # 伪造一个跟mode一样的None数据
+        #     claims = self._split_by_subset([None] * len(mode_predictions), option_num=False, normalization=False, sample_num=False)
+        
+        for d, r, p, m, s in zip(self._datasets, raw, processed, mode, score_lists):
+        # for d, r, p, m, s, c in zip(self._datasets, raw, processed, mode, score_lists, claims):
 
             def set_subset(l: dict):
                 l["subset"] = d.subset_name
 
-            series = d.log_final_results(r, p, s)  # type: ignore
+            series = d.log_final_results(r, p, m, s)  # type: ignore
+            # series = d.log_final_results(r, p, m, s, c)  # type: ignore
             if series is None:
                 return
             series.apply(set_subset)
@@ -948,9 +1022,6 @@ class DatasetCollection(torch.utils.data.Dataset):
             pd.concat(lines).to_json(file, orient="records", indent=4, force_ascii=False)
         except Exception as e:
             logger.warning(f"Failed to log predictions: {e}")
-
-    def post_processing(self, predictions: List[Union[str, float]]):
-        return sum((d.post_processing(p) for d, p in zip(self._datasets, self._split_by_subset(predictions))), [])
 
     def __getitem__(self, idx):
         if self.args.continue_from:
@@ -973,16 +1044,101 @@ class DatasetCollection(torch.utils.data.Dataset):
     def __getattr__(self, attr):
         return getattr(self._datasets[self._cur_idx], attr)
 
-    def calculate_metric(self, predictions) -> Tuple[Dict[str, Dict[str, float]], List[Dict[str, List[float]]]]:
-        results = OrderedDict()
+    def calculate_metric(
+            self, 
+            raw_predictions: List[Union[str, float]], 
+            uncertain_quantification: bool=False,
+            # gpu_memory_utilization: float=0.9,
+            ) -> Dict[str, Dict[str, float]]:
+        r"""Post-process predictions and calculate the metric scores."""
+
+        metric_results = OrderedDict()
+        predictions = []
+        agg_predictions = []
+
+        # per_ques_predictions = []
+        # questions = []
+
         score_lists = []
-        splitted = self._split_by_subset(predictions, option_num=False, normalization=False, sample_num=False)
-        grouped_display_names = defaultdict(list)  # group by dataset
-        for n, d, p in zip(self.display_names, self._datasets, splitted):
-            subset_results, score_list = d.calculate_metric(p)
-            results.update(subset_results)
+        grouped_display_names = defaultdict(list)
+
+        for n, d, p in zip(self.display_names, self._datasets, self._split_by_subset(raw_predictions)):
+            # post process
+            preds = d.post_processing(p)
+
+            # aggregate self-consistency or pass@k
+            step = d.len(option_num=False, sample_num=False, normalization=False)
+            if self.args.pass_at_k:
+                # [inst1, inst2, inst1, inst2] -> [[inst1, inst1], [inst2, inst2]]
+                agg_preds = [preds[i::step] for i in range(step)]
+            elif len(preds) // step > 1:
+                if uncertain_quantification:
+                    agg_preds = [preds[i::step][0] for i in range(step)]
+                else:
+                    # [inst1, inst2, inst1, inst2] -> [mode([inst1, inst1]), mode([inst2, inst2])]
+                    agg_preds = [mode(preds[i::step]) for i in range(step)]
+            else:
+                # [inst1, inst2]
+                agg_preds = preds
+
+            predictions.extend(preds)
+            agg_predictions.extend(agg_preds)
+
+            # per_ques_predictions.extend([preds[i::step] for i in range(step)])
+            # questions.extend([instance[0]['content'] for instance in d.evaluation_instances])
+
+            # calculate metric
+            subset_results, score_list = d.calculate_metric(agg_preds)
+            metric_results.update(subset_results)
             score_lists.append(score_list)
             grouped_display_names[d.dataset_name].append(n)
+
+        # if uncertain_quantification and 'gen' in self.args.dataset_names[0]:
+        #     uncertainty_quan_func = SelfConsistency(
+        #         is_gen=True,
+        #         gpu_memory_utilization=gpu_memory_utilization,
+        #     )
+        # else:
+        #     uncertainty_quan_func = SelfConsistency()
+
+
+        # # 计算校准指标
+        # if uncertain_quantification:
+        #     # TODO(xansar): 批处理claim extract和entail
+        #     confs, claims_seq = uncertainty_quan_func(per_ques_predictions, questions)
+        #     # print(confs)
+
+        #     ## claim extract
+        #     # primary_answers = agg_predictions
+        #     # questions = [instance[0]['content'] for instance in self.evaluation_instances]
+        #     # claims_seq = claim_extractor.extract_claims(primary_answers, questions)
+
+        #     # ## entail score
+
+        #     for n, d, c, s in zip(self.display_names, self._datasets, self._split_by_subset(confs, sample_num=False), score_lists):
+
+        #         # # p_per_ques = [preds[i::step] for i in range(step)]
+        #         # step = d.len(option_num=False, sample_num=False, normalization=False)
+        #         if 'Accuracy' in s:
+        #             accuracy_list = s['Accuracy']
+        #         else:
+        #             accuracy_list = s['BERTScore']
+        #             # 对accuracy_list进行最大值-最小值缩放
+        #             scale_accuracy_list = (accuracy_list - np.min(accuracy_list)) / (np.max(accuracy_list) - np.min(accuracy_list))
+                
+        #         # questions = [instance[0]['content'] for instance in d.evaluation_instances]
+        #         # uncertainty_list = uncertainty_quan_func(p_per_ques, questions)
+        #         calib_subset_results, calib_score_list = \
+        #             d.calculate_calibration_metric(c, scale_accuracy_list)
+        #         for k in calib_subset_results.keys():
+        #             metric_results[k].update(calib_subset_results[k])
+        #         # FIXME(xansar): -1是遗留,修改
+        #         s.update(calib_score_list)
+
+        #     # from ..utils import release_vllm
+        #     # release_vllm(claim_extractor.llm)
+        # else:
+        #     claims_seq = None
 
         # calculate the mean of each category
         for name, display_names in grouped_display_names.items():
@@ -993,19 +1149,55 @@ class DatasetCollection(torch.utils.data.Dataset):
                         # skip if not all subsets of a category are available
                         continue
                     fstr = f"{name}[{cat.title().replace('_', ' ')} Macro Average]"
-                    results[fstr] = avg_metrics([results[n] for n in c])
+                    metric_results[fstr] = avg_metrics([metric_results[n] for n in c])
 
             if name == "gaokao":
-                r, f = zip(*[(results[name + ":" + n], f) for n, f in GAOKAO_CHINESE_TASKS_SCORE.items()])
-                results[name + "[Chinese Weighted Average]"] = avg_metrics(r, f, average_method="weighted")
-                r, f = zip(*[(results[name + ":" + n], f) for n, f in GAOKAO_ENGLISH_TASKS_SCORE.items()])
-                results[name + "[English Weighted Average]"] = avg_metrics(r, f, average_method="weighted")
-                r, f = zip(*[(results[name + ":" + n], f) for n, f in GAOKAO_TASKS_SCORE.items()])
-                results[name + "[Weighted Average]"] = avg_metrics(r, f, average_method="weighted")
+                r, f = zip(*[(metric_results[name + ":" + n], f) for n, f in GAOKAO_CHINESE_TASKS_SCORE.items()])
+                metric_results[name + "[Chinese Weighted Average]"] = avg_metrics(r, f, average_method="weighted")
+                r, f = zip(*[(metric_results[name + ":" + n], f) for n, f in GAOKAO_ENGLISH_TASKS_SCORE.items()])
+                metric_results[name + "[English Weighted Average]"] = avg_metrics(r, f, average_method="weighted")
+                r, f = zip(*[(metric_results[name + ":" + n], f) for n, f in GAOKAO_TASKS_SCORE.items()])
+                metric_results[name + "[Weighted Average]"] = avg_metrics(r, f, average_method="weighted")
 
-            results[name + "[Marco Average]"] = avg_metrics([r for k, r in results.items() if k.startswith(name + ":")])
+            metric_results[name + "[Marco Average]"] = avg_metrics([
+                r for k, r in metric_results.items() if k.startswith(name + ":")
+            ])
 
-        return results, score_lists
+        # self.log_final_results(raw_predictions, predictions, agg_predictions, score_lists, claims_seq)
+        self.log_final_results(raw_predictions, predictions, agg_predictions, score_lists)
+        return metric_results
+
+    # def calculate_calibration_metric(self, predictions, last_score_lists, uncertainty_quan_func) -> Tuple[Dict[str, Dict[str, float]], List[Dict[str, List[float]]]]:
+    #     results = OrderedDict()
+    #     score_lists = []
+    #     grouped_display_names = defaultdict(list)  # group by dataset
+    #     splitted = self._split_by_subset(predictions, option_num=False, normalization=False, sample_num=self.args.sample_num)
+        
+    #     for n, d, p, a in zip(self.display_names, self._datasets, splitted, last_score_lists):
+    #         ## 计算uncertainty
+    #         ### 按照sample_num对p进行折叠，构建一个二层list
+    #         cur_step = d.len(option_num=False, sample_num=False, normalization=False)
+    #         p_per_ques = [p[i::cur_step] for i in range(cur_step)]
+    #         uncertainty_list = uncertainty_quan_func(p_per_ques)
+    #         accuracy_list = a['Accuracy']
+    #         subset_results, score_list = d.calculate_calibration_metric(uncertainty_list, accuracy_list)
+    #         results.update(subset_results)
+    #         score_lists.append(score_list)
+    #         grouped_display_names[d.dataset_name].append(n)
+        
+    #             # calculate the mean of each category
+    #     for name, display_names in grouped_display_names.items():
+    #         if self.categorized_subsets.get(name, None):
+    #             for cat, cat_subsets in self.categorized_subsets[name].items():
+    #                 c = set(f"{name}:{s}" for s in cat_subsets)
+    #                 if len(c.intersection(set(display_names))) != len(c):
+    #                     # skip if not all subsets of a category are available
+    #                     continue
+    #                 fstr = f"{name}[{cat.title().replace('_', ' ')} Macro Average]"
+    #                 results[fstr] = avg_metrics([results[n] for n in c])    
+
+    #         results[name + "[Marco Average]"] = avg_metrics([r for k, r in results.items() if k.startswith(name + ":")])
+    #     return results, score_lists
 
     def get_batch_sampler(self, reload_tokenizer: bool = False):
         if reload_tokenizer:

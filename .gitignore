@@ -4,6 +4,7 @@
 # LLMBox
 logs/
 evaluation_results/
+uncertain_results/
 
 # Byte-compiled / optimized / DLL files
 __pycache__/

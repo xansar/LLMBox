@@ -13,7 +13,9 @@ def test_tokenizer_chat_template(conversation: Conversation):
     conversation.set_formatter(formatter)
     formatted_conversation = conversation.apply_prompt_template()
     assert formatted_conversation == (
-        "<s><|user|>\n"
+        "<|system|>\n"
+        "This is a system message.<|end|>\n"
+        "<|user|>\n"
         "This is a user message.<|end|>\n"
         "<|assistant|>\n"
         "This is an assistant message.<|end|>\n"
@@ -21,6 +23,7 @@ def test_tokenizer_chat_template(conversation: Conversation):
         "This is the second user message.<|end|>\n"
         "<|assistant|>\n"
         "This is the second assistant message.<|end|>\n"
+        "<|endoftext|>"
     )
     assert formatted_conversation == tokenizer.apply_chat_template(conversation, tokenize=False)
 
@@ -55,9 +58,8 @@ def test_phi3(conversation: Conversation):
     formatter = ConversationFormatter.from_chat_template("phi3")
     conversation.set_formatter(formatter)
     formatted_conversation = conversation.apply_prompt_template()
-    pytest.skip(reason="Phi-3 template is not implemented yet.")
     assert formatted_conversation == (
-        "<s><|system|>\n"
+        "<|system|>\n"
         "This is a system message.<|end|>\n"
         "<|user|>\n"
         "This is a user message.<|end|>\n"
@@ -67,6 +69,23 @@ def test_phi3(conversation: Conversation):
         "This is the second user message.<|end|>\n"
         "<|assistant|>\n"
         "This is the second assistant message.<|end|>\n"
+    )
+
+
+def test_gemma(conversation: Conversation):
+    formatter = ConversationFormatter.from_chat_template("gemma")
+    conversation.set_formatter(formatter)
+    formatted_conversation = conversation.apply_prompt_template()
+    assert formatted_conversation == (
+        "<bos><start_of_turn>user\n"
+        "This is a system message.\n"
+        "This is a user message.<end_of_turn>\n"
+        "<start_of_turn>model\n"
+        "This is an assistant message.<end_of_turn>\n"
+        "<start_of_turn>user\n"
+        "This is the second user message.<end_of_turn>\n"
+        "<start_of_turn>model\n"
+        "This is the second assistant message.<end_of_turn>\n"
     )
 
 

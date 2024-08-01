@@ -4,7 +4,7 @@ from typing import List
 from .utils.generation_args import generation_arg
 
 VLLM_ARGS = {
-    "temperature": generation_arg(),
+    "temperature": generation_arg(default=0),
     "top_p": generation_arg(),
     "top_k": generation_arg(),
     "max_tokens": generation_arg(default=1024),
@@ -100,6 +100,19 @@ QIANFAN_CHAT_COMPLETIONS_ARGS = {
     generation_arg(default=1024, transform_key="max_output_tokens", transform_value=lambda x: max(2, int(x))),
 }
 
+# MOONSHOT_CHAT_COMPLETIONS_ARGS = {
+#     "temperature": generation_arg(transform_value=lambda x: min(max(0.0001, float(x)), 1.0)),
+#     "top_p": generation_arg(),
+#     "penalty_score": generation_arg(),
+#     "stop": generation_arg(),
+#     "disable_search": generation_arg(),
+#     "enable_citation": generation_arg(),
+#     "max_tokens":generation_arg(default=1024),
+#     "n": generation_arg(default=1),
+#     "presence_penalty": generation_arg(),
+#     "frequency_penalty": generation_arg(),
+# }
+
 
 def logit_bias_to_logits_processors(logit_bias: dict) -> List[callable]:
 
@@ -136,6 +149,7 @@ ENDPOINT_ARGS = {
     "openai/chat/completions": OPENAI_CHAT_COMPLETIONS_ARGS,
     "openai/completions": OPENAI_COMPLETIONS_ARGS,
     "qianfan/chat/completions": QIANFAN_CHAT_COMPLETIONS_ARGS,
+    # "moonshot/chat/completions": MOONSHOT_CHAT_COMPLETIONS_ARGS,
 }
 
 API_MODELS = {
@@ -243,6 +257,11 @@ API_MODELS = {
         "endpoint": "chat/completions",
         "model_type": "chat",
         "model_backend": "openai",
+    },
+    "claude-3-5-sonnet-20240620": {
+        "endpoint": "chat/completions",
+        "model_type": "chat",
+        "model_backend": "anthropic",
     },
     "claude-3-opus-20240229": {
         "endpoint": "chat/completions",
@@ -463,6 +482,16 @@ API_MODELS = {
         "endpoint": "chat/completions",
         "model_type": "chat",
         "model_backend": "qianfan",
+    },
+    "moonshot-v1-8k": {
+        "endpoint": "chat/completions",
+        "model_type": "chat",
+        "model_backend": "openai",
+    },
+    "deepseek-chat": {
+        "endpoint": "chat/completions",
+        "model_type": "chat",
+        "model_backend": "openai",
     },
 }
 

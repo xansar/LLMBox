@@ -82,11 +82,12 @@ class PredictionWriter:
             self.continue_from_path = None
             return
 
+        # load num instances
         self.continue_from_path = continue_from or self.evaluation_args.continue_from
         if self.continue_from_path:
             self.continue_from_instance = self.check_continue()
 
-        # load num instances
+        # set num instances in dataset_args
         if self.continue_from_instance is not None and continue_from is None:
             self.dataset_args.continue_from = self.continue_from_instance
 
@@ -95,7 +96,7 @@ class PredictionWriter:
 
     def _write(self, data):
         try:
-            with open(self.evaluation_path, "a") as f:
+            with open(self.evaluation_path, "a", encoding="utf-8") as f:
                 json.dump(data, f, ensure_ascii=False)
                 f.write("\n")
         except Exception as e:
@@ -170,6 +171,7 @@ def _warn(e, lines):
 def log_final_results(
     raw_predictions: List[str],
     processed_predictions: List[Union[str, float]],
+    mode_predictions: List[Union[str, float]],
     evaluation_instances: List[tuple],
     score_lists: Dict[str, List[float]],
     multiple_source: bool,
@@ -179,6 +181,8 @@ def log_final_results(
     len_evaluation_data: int,
     sample_num: int,
     references: List[Any],
+    questions: List[Any],
+    options: List[Any],
     local_model: bool,
 ) -> Optional[pd.Series]:
     """Aggregate the final results and prepare for dumping to a json file."""
@@ -194,13 +198,16 @@ def log_final_results(
         lines = {
             "index": list(repeat_iter(range(len_evaluation_data), sample_num)),
             "source": evaluation_instances,
+            "question": list(repeat_iter(questions, sample_num)),
+            "option": list(repeat_iter(options, sample_num)),
             "raw_prediction": raw_predictions,
             "processed_prediction": processed_predictions,
+            "mode_prediction": list(repeat_iter(mode_predictions, sample_num)),
             "reference": list(repeat_iter(references, sample_num)),
             "metric": list(repeat_iter(transposed_score_lists, sample_num)),
         }
         try:
-            return pd.DataFrame(lines).groupby("index").apply(to_dict(merge=["index", "source", "metric", "reference"]))
+            return pd.DataFrame(lines).groupby("index").apply(to_dict(merge=["index", "source", 'question', 'option', "mode_prediction", "metric", "reference"]))
         except Exception as e:
             _warn(e, lines)
 
@@ -225,6 +232,7 @@ def log_final_results(
         lines = {
             "index": index,
             "source": source_text,
+            "question": questions,
             "option": target_text,
             "option_num": option_nums,
             "perplexity": map(lambda r: r[0], raw_predictions),
@@ -234,10 +242,10 @@ def log_final_results(
         try:
             if multiple_source:
                 merge = ["index", "option", "reference", "metric"]
-                merge_by_option = ["source"]
+                merge_by_option = ["source", 'question']
             else:
                 merge = ["index", "source", "reference", "metric"]
-                merge_by_option = ["option"]
+                merge_by_option = ["option", 'question']
             return pd.DataFrame(lines).groupby("index").apply(to_dict(merge, merge_by_option))
         except Exception as e:
             _warn(e, lines)
@@ -247,6 +255,7 @@ def log_final_results(
         lines = {
             "index": list(range(len_evaluation_data)),
             "source": list(map(lambda i: "".join(i[:-1]), evaluation_instances)),
+            "question": questions,
             "probabilites": raw_predictions,
             "prediction": processed_predictions,
             "reference": references,

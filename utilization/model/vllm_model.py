@@ -60,14 +60,16 @@ class vllmModel(Model):
             quantization="gptq" if args.gptq else None,
             trust_remote_code=True,
             seed=args.seed,
+            max_model_len=self.args.max_length,
             max_logprobs=40,  # https://github.com/vllm-project/vllm/issues/5299
+            max_model_len=self.args.max_length,
             **kwargs
         )  # type: ignore
         self.tokenizer = self.model.get_tokenizer()
         self.tokenizer.truncation_side = "left"
         self.tokenizer.model_max_length = min(
             self.model.llm_engine.model_config.max_model_len,
-            getattr(args, "max_length") or 1e10
+            getattr(args, "max_length", 1e10)
         )
         if hasattr(self.tokenizer, "add_bos_token"):
             # add in chat_template
