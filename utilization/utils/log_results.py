@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 import json
 import typing
 from dataclasses import asdict
@@ -68,7 +69,7 @@ class PredictionWriter:
         self.dataset_args = dataset_args
         self.evaluation_args = evaluation_args
         if self.alive():
-            with open(self.evaluation_path, "w") as f:
+            with open(self.evaluation_path, "w", encoding="utf-8") as f:
                 metainfo = {
                     "evaluation_results": "batch",
                     "model_args": asdict(model_args),
